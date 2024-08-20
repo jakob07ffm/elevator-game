@@ -21,6 +21,8 @@ MAX_SPEED = 5
 VIP_PRIORITY = 1
 REGULAR_PRIORITY = 2
 MAINTENANCE_PROBABILITY = 0.01
+PATIENCE_THRESHOLD = 300
+OVERLOAD_PENALTY = 2
 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -31,6 +33,10 @@ GREEN = (0, 255, 0)
 YELLOW = (255, 255, 0)
 ORANGE = (255, 165, 0)
 PURPLE = (128, 0, 128)
+LIGHT_BLUE = (173, 216, 230)
+
+MORNING_BG = (135, 206, 250)
+NIGHT_BG = (25, 25, 112)
 
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Advanced Elevator Game")
@@ -44,6 +50,9 @@ elevator_movement_sound = pygame.mixer.Sound('elevator_move.wav')
 door_open_sound = pygame.mixer.Sound('door_open.wav')
 door_close_sound = pygame.mixer.Sound('door_close.wav')
 floor_arrival_sound = pygame.mixer.Sound('floor_arrival.wav')
+overload_sound = pygame.mixer.Sound('overload.wav')
+background_music = pygame.mixer.music.load('background_music.mp3')
+pygame.mixer.music.play(-1)
 
 class Passenger:
     def __init__(self, start_floor):
@@ -53,12 +62,22 @@ class Passenger:
             self.destination_floor = random.randint(0, FLOOR_COUNT - 1)
         self.weight = random.randint(*PASSENGER_WEIGHT_RANGE)
         self.priority = random.choice([VIP_PRIORITY, REGULAR_PRIORITY])
+        self.patience = PATIENCE_THRESHOLD
+        self.preferences = {
+            'avoid_crowd': random.choice([True, False]),
+            'max_elevator_wait': random.randint(5, 10)
+        }
 
     def draw(self, x, y):
         color = ORANGE if self.priority == VIP_PRIORITY else YELLOW
         pygame.draw.circle(screen, color, (x, y), 15)
         label = font.render(str(self.destination_floor + 1), True, BLACK)
         screen.blit(label, (x - 10, y - 10))
+
+    def decrease_patience(self):
+        self.patience -= 1
+        if self.patience <= 0:
+            waiting_passengers[self.start_floor].remove(self)
 
 class Elevator:
     def __init__(self, x_pos):
@@ -74,13 +93,20 @@ class Elevator:
         self.total_weight = 0
         self.maintenance = False
         self.score = 0
+        self.overloaded = False
 
     def move(self):
         if self.maintenance or not self.call_queue:
             return
 
         if self.total_weight > MAX_CAPACITY:
+            self.overloaded = True
+            self.speed = max(self.speed - OVERLOAD_PENALTY, 0)
+            if self.speed == 0:
+                pygame.mixer.Sound.play(overload_sound)
             return
+        else:
+            self.overloaded = False
 
         self.target_floor = self.call_queue[0]
         target_y = SCREEN_HEIGHT - (self.target_floor + 1) * (SCREEN_HEIGHT // FLOOR_COUNT)
@@ -122,6 +148,9 @@ class Elevator:
         if self.maintenance:
             label = font.render("MAINTENANCE", True, RED)
             screen.blit(label, (self.rect.x + 10, self.rect.y + 40))
+        if self.overloaded:
+            label = font.render("OVERLOADED", True, RED)
+            screen.blit(label, (self.rect.x + 10, self.rect.y + 70))
 
     def draw_passengers(self):
         for i, passenger in enumerate(self.passengers):
@@ -136,7 +165,7 @@ class Elevator:
         global waiting_passengers
         boarding_passengers = [p for p in waiting_passengers[self.current_floor] if p.destination_floor not in self.call_queue]
         for passenger in boarding_passengers:
-            if self.total_weight + passenger.weight <= MAX_CAPACITY:
+            if self.total_weight + passenger.weight <= MAX_CAPACITY and (len(self.passengers) < 4 or not passenger.preferences['avoid_crowd']):
                 self.passengers.append(passenger)
                 self.total_weight += passenger.weight
                 waiting_passengers[self.current_floor].remove(passenger)
@@ -213,6 +242,20 @@ def check_maintenance():
         if elevator.maintenance and random.random() < MAINTENANCE_PROBABILITY:
             elevator.maintenance = False
 
+def update_time_of_day():
+    time_of_day = pygame.time.get_ticks() // 1000 % 24
+    if 6 <= time_of_day < 18:
+        screen.fill(MORNING_BG)
+    else:
+        screen.fill(NIGHT_BG)
+
+def draw_stats():
+    label = font.render("STATS", True, BLACK)
+    screen.blit(label, (SCREEN_WIDTH - 200, 10))
+    for i, elevator in enumerate(elevators):
+        score_text = font.render(f"Elevator {i+1} Score: {elevator.score}", True, BLACK)
+        screen.blit(score_text, (SCREEN_WIDTH - 200, 50 + i * 30))
+
 while True:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -225,6 +268,8 @@ while True:
             elif event.key == pygame.K_DOWN:
                 for elevator in elevators:
                     elevator.speed = max(elevator.speed - 1, 1)
+            elif event.key == pygame.K_s:
+                draw_stats()
         if event.type == pygame.MOUSEBUTTONDOWN:
             pos = pygame.mouse.get_pos()
             for button in call_buttons:
@@ -237,8 +282,10 @@ while True:
     for elevator in elevators:
         elevator.move()
         elevator.unload_passengers()
+        for passenger in elevator.passengers:
+            passenger.decrease_patience()
 
-    screen.fill(WHITE)
+    update_time_of_day()
 
     draw_floors()
     for elevator in elevators:
@@ -246,6 +293,8 @@ while True:
     draw_floor_indicator()
     update_call_buttons()
     draw_waiting_passengers()
+
+    draw_stats()
 
     pygame.display.flip()
     clock.tick(FPS)
