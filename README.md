@@ -21,7 +21,7 @@ This is a Python-based simulation game developed using Pygame. The game simulate
 ## How to Run
 
 Run the game using the following command:
-"python elevator_game.py"
+"python main.py"
 
 ## Controls 
 - **Arrow Up/Down: **
