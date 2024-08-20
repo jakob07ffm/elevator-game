@@ -14,10 +14,13 @@ DOOR_HEIGHT = ELEVATOR_HEIGHT
 FLOOR_COUNT = 5
 ELEVATOR_COUNT = 2
 BUTTON_SIZE = 40
-MAX_CAPACITY = 500  # Max weight capacity of an elevator in arbitrary units
-PASSENGER_WEIGHT_RANGE = (50, 100)  # Weight range for passengers
-ACCELERATION = 0.5  # Acceleration for elevators
-MAX_SPEED = 5  # Maximum speed for elevators
+MAX_CAPACITY = 500
+PASSENGER_WEIGHT_RANGE = (50, 100)
+ACCELERATION = 0.5
+MAX_SPEED = 5
+VIP_PRIORITY = 1
+REGULAR_PRIORITY = 2
+MAINTENANCE_PROBABILITY = 0.01
 
 WHITE = (255, 255, 255)
 BLACK = (0, 0, 0)
@@ -26,6 +29,8 @@ RED = (255, 0, 0)
 BLUE = (0, 0, 255)
 GREEN = (0, 255, 0)
 YELLOW = (255, 255, 0)
+ORANGE = (255, 165, 0)
+PURPLE = (128, 0, 128)
 
 screen = pygame.display.set_mode((SCREEN_WIDTH, SCREEN_HEIGHT))
 pygame.display.set_caption("Advanced Elevator Game")
@@ -33,7 +38,7 @@ pygame.display.set_caption("Advanced Elevator Game")
 clock = pygame.time.Clock()
 
 font = pygame.font.Font(None, 36)
-door_open_time = 2 * FPS  # Time to keep doors open
+door_open_time = 2 * FPS
 
 elevator_movement_sound = pygame.mixer.Sound('elevator_move.wav')
 door_open_sound = pygame.mixer.Sound('door_open.wav')
@@ -47,9 +52,11 @@ class Passenger:
         while self.destination_floor == start_floor:
             self.destination_floor = random.randint(0, FLOOR_COUNT - 1)
         self.weight = random.randint(*PASSENGER_WEIGHT_RANGE)
+        self.priority = random.choice([VIP_PRIORITY, REGULAR_PRIORITY])
 
     def draw(self, x, y):
-        pygame.draw.circle(screen, YELLOW, (x, y), 15)
+        color = ORANGE if self.priority == VIP_PRIORITY else YELLOW
+        pygame.draw.circle(screen, color, (x, y), 15)
         label = font.render(str(self.destination_floor + 1), True, BLACK)
         screen.blit(label, (x - 10, y - 10))
 
@@ -65,9 +72,11 @@ class Elevator:
         self.call_queue = []
         self.passengers = []
         self.total_weight = 0
+        self.maintenance = False
+        self.score = 0
 
     def move(self):
-        if not self.call_queue:
+        if self.maintenance or not self.call_queue:
             return
 
         if self.total_weight > MAX_CAPACITY:
@@ -110,6 +119,9 @@ class Elevator:
         else:
             pygame.draw.rect(screen, BLACK, (self.rect.x + self.door_offset, self.rect.y, DOOR_WIDTH, DOOR_HEIGHT))
             pygame.draw.rect(screen, BLACK, (self.rect.x + ELEVATOR_WIDTH - DOOR_WIDTH - self.door_offset, self.rect.y, DOOR_WIDTH, DOOR_HEIGHT))
+        if self.maintenance:
+            label = font.render("MAINTENANCE", True, RED)
+            screen.blit(label, (self.rect.x + 10, self.rect.y + 40))
 
     def draw_passengers(self):
         for i, passenger in enumerate(self.passengers):
@@ -129,6 +141,7 @@ class Elevator:
                 self.total_weight += passenger.weight
                 waiting_passengers[self.current_floor].remove(passenger)
                 self.set_target_floor(passenger.destination_floor)
+                self.score += 10 if passenger.priority == VIP_PRIORITY else 5
 
     def unload_passengers(self):
         exiting_passengers = [p for p in self.passengers if p.destination_floor == self.current_floor]
@@ -136,7 +149,7 @@ class Elevator:
             self.passengers.remove(passenger)
             self.total_weight -= passenger.weight
 
-waiting_passengers = {floor: [Passenger(floor) for _ in range(random.randint(0, 3))] for floor in range(FLOOR_COUNT)}
+waiting_passengers = {floor: [] for floor in range(FLOOR_COUNT)}
 
 elevators = [Elevator((i * (SCREEN_WIDTH // ELEVATOR_COUNT) + (SCREEN_WIDTH // ELEVATOR_COUNT - ELEVATOR_WIDTH) // 2)) for i in range(ELEVATOR_COUNT)]
 
@@ -188,6 +201,18 @@ def draw_waiting_passengers():
             y = SCREEN_HEIGHT - (floor + 1) * (SCREEN_HEIGHT // FLOOR_COUNT) + 20
             passenger.draw(x, y)
 
+def generate_passengers():
+    for floor in range(FLOOR_COUNT):
+        if random.random() < 0.1:
+            waiting_passengers[floor].append(Passenger(floor))
+
+def check_maintenance():
+    for elevator in elevators:
+        if not elevator.maintenance and random.random() < MAINTENANCE_PROBABILITY:
+            elevator.maintenance = True
+        if elevator.maintenance and random.random() < MAINTENANCE_PROBABILITY:
+            elevator.maintenance = False
+
 while True:
     for event in pygame.event.get():
         if event.type == pygame.QUIT:
@@ -205,6 +230,9 @@ while True:
             for button in call_buttons:
                 if button.rect.collidepoint(pos):
                     button.press()
+
+    generate_passengers()
+    check_maintenance()
 
     for elevator in elevators:
         elevator.move()
