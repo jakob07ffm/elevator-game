@@ -34,3 +34,4 @@ You can modify various constants in the main.py file to adjust the game's behavi
 - Number of elevators (ELEVATOR_COUNT)
 - Maximum elevator speed (MAX_SPEED)
 - And more...
+![](el.JPG)
